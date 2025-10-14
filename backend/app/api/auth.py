@@ -1,6 +1,11 @@
+from datetime import datetime, timedelta
+from time import timezone
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+
+from backend.app.core.config import Settings
 
 from ..schemas.user import UserCreate, UserOut
 from ..models.user import User
@@ -43,3 +48,26 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
 
     return new_user
+
+@router.post("/login")
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username).first()
+
+    if not user or not pwd_context.verify(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email ou senha incorretos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    expire = datetime.now(timezone.utc) + timedelta(minutes=Settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode = {
+        "sub": user.email,      # 'subject' do token
+        "user_id": user.id,     
+        "exp": expire,          
+    }
+
+    access_token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM) # pyright: ignore[reportUndefinedVariable]
+
+    return {"access_token": access_token, "token_type": "bearer"}
